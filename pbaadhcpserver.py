@@ -5,12 +5,29 @@ import logging
 import requests
 from libpydhcpserver.dhcp import DHCPServer
 class PBAADHCPServer(DHCPServer):
+    def __init__(
+            self, server_address, server_port, client_port,
+            aaserver_host, aaserver_port,
+            proxy_port=None, response_interface=None,
+            response_interface_qtags=None
+    ):
+        self.aaserver_url = aaserver_host + ':' + str(aaserver_port)
+        DHCPServer.__init__(
+            self,
+            server_address=server_address,
+            server_port=server_port,
+            client_port=client_port,
+            proxy_port=proxy_port,
+            response_interface=response_interface,
+            response_interface_qtags=response_interface_qtags
+        )
+
     def _handleDHCPDecline(self, packet, source_address, port):
         logging.info('recieved DHCPDECLINE from: %s:%s',
                      source_address.ip, source_address.port)
         logging.debug('\n%s\n', packet)
-        self._get_client_optionsT(
-            'DHCP_DECLINE', self._get_packet_info(packet), None)
+        self._get_client_options(
+            'DHCP_DECLINE', self._get_packet_info(packet))
 
     def _handleDHCPDiscover(self, packet, source_address, port):
         logging.info('recieved DHCPDISCOVER from: %s:%s',
@@ -18,16 +35,16 @@ class PBAADHCPServer(DHCPServer):
         logging.debug('\n%s\n', packet)
         # for option in packet._options:
         #     print('{}, {}'.format(option, packet.getOption(option, True)))
-        [msg_type, options] = self._get_client_optionsT(
-            'DHCP_DISCOVER', self._get_packet_info(packet), None)
+        [msg_type, options] = self._get_client_options(
+            'DHCP_DISCOVER', self._get_packet_info(packet))
         self._send_dhcp_msg(packet, msg_type, options, source_address, port)
 
     def _handleDHCPInform(self, packet, source_address, port):
         logging.info('recieved DHCPINFORM from: %s:%s',
                      source_address.ip, source_address.port)
         logging.debug('\n%s\n', packet)
-        [msg_type, options] = self._get_client_optionsT(
-            'DHCP_INFORM', self._get_packet_info(packet), None)
+        [msg_type, options] = self._get_client_options(
+            'DHCP_INFORM', self._get_packet_info(packet))
         self._send_dhcp_msg(packet, msg_type, options, source_address, port)
 
     def _handleDHCPLeaseQuery(self, packet, source_address, port):
@@ -39,15 +56,15 @@ class PBAADHCPServer(DHCPServer):
         logging.info('recieved DHCPRELEASE from: %s:%s',
                      source_address.ip, source_address.port)
         logging.debug('\n%s\n', packet)
-        self._get_client_optionsT(
-            'DHCP_RELEASE', self._get_packet_info(packet), None)
+        self._get_client_options(
+            'DHCP_RELEASE', self._get_packet_info(packet))
 
     def _handleDHCPRequest(self, packet, source_address, port):
         logging.info('recieved DHCPREQUEST from: %s:%s',
                      source_address.ip, source_address.port)
         logging.debug('\n%s\n', packet)
-        [msg_type, options] = self._get_client_optionsT(
-            'DHCP_REQUEST', self._get_packet_info(packet), None)
+        [msg_type, options] = self._get_client_options(
+            'DHCP_REQUEST', self._get_packet_info(packet))
         self._send_dhcp_msg(packet, msg_type, options, source_address, port)
 
     def get_next_dhcp_packet(self, timeout=60, packet_buffer=2048):
@@ -94,8 +111,7 @@ class PBAADHCPServer(DHCPServer):
         # print(json.JSONEncoder().encode(info))
         return info
 
-    @classmethod
-    def _get_client_optionsT(cls, dhcp_type, client_info, server_addr): #pylint: disable=W,C
+    def _get_client_optionsT(self, dhcp_type, client_info): #pylint: disable=W,C
         require_options = False
         if dhcp_type is 'DHCP_DISCOVER':
             require_options = True
@@ -118,7 +134,7 @@ class PBAADHCPServer(DHCPServer):
         res_data = None
         if require_options:
             try:
-                res_msg_type = cls._code_to_msg_type[dhcp_type][200]
+                res_msg_type = self._code_to_msg_type[dhcp_type][200]
             except KeyError:
                 logging.error('Status code from server is not correct: ')
                 logging.error('Packet will be ignored.')
@@ -136,8 +152,7 @@ class PBAADHCPServer(DHCPServer):
                     logging.error('Data sent from server is not correct.')
         return [res_msg_type, res_data]
 
-    @classmethod
-    def _get_client_options(cls, dhcp_type, client_info, server_addr):
+    def _get_client_options(self, dhcp_type, client_info):
         '''
         Get the options of the client from a RESTful server.
 
@@ -156,22 +171,29 @@ class PBAADHCPServer(DHCPServer):
         res = None
         require_options = False
         if dhcp_type is 'DHCP_DISCOVER':
-            res = requests.post(server_addr + '/discover', json=client_info)
+            logging.debug('Url: %s', self.aaserver_url)
+            res = requests.post(self.aaserver_url + '/discover',
+                                json=client_info)
             require_options = True
         elif dhcp_type is 'DHCP_REQUEST':
-            res = requests.post(server_addr + '/request', json=client_info)
+            res = requests.post(self.aaserver_url + '/request',
+                                json=client_info)
             require_options = True
         elif require_options is 'DHCP_INFORM':
-            res = requests.post(server_addr + '/inform', json=client_info)
+            res = requests.post(self.aaserver_url + '/inform',
+                                json=client_info)
             require_options = True
         elif dhcp_type is 'DHCP_DECLINE':
-            res = requests.put(server_addr + '/decline', json=client_info)
+            res = requests.put(self.aaserver_url + '/decline',
+                               json=client_info)
             require_options = False
         elif dhcp_type is 'DHCP_RELEASE':
-            res = requests.put(server_addr + '/release', json=client_info)
+            res = requests.put(self.aaserver_url + '/release',
+                               json=client_info)
             require_options = False
         # elif dhcp_type is 'DHCP_LEASEQUERY':
-        #     res = requests.post(server_addr + '/leasequery', json=client_info)
+        #     res = requests.post(self.aaserver_url + '/leasequery',
+        #                         json=client_info)
         #     require_options = True
         else:
             logging.error('Incorrect dhcp_type from server: %s.', dhcp_type)
@@ -182,7 +204,7 @@ class PBAADHCPServer(DHCPServer):
         res_data = None
         if require_options:
             try:
-                res_msg_type = cls._code_to_msg_type[dhcp_type][res.status_code]
+                res_msg_type = self._code_to_msg_type[dhcp_type][res.status_code]
             except KeyError:
                 logging.error(
                     'Incorrect status code from server: %s', res.status_code)
@@ -205,6 +227,8 @@ def main():
     server_ip = '127.0.0.1'
     server_port = 67
     client_port = 68
+    aaserver_host = 'http://127.0.0.1'
+    aaserver_port = 8080
     logging.basicConfig(
         format='%(levelname)s:%(message)s', level=logging.DEBUG
     )
@@ -213,7 +237,8 @@ def main():
                  'client port: %s',
                  server_ip, server_port, client_port)
 
-    dhcpd = PBAADHCPServer(server_ip, server_port, client_port)
+    dhcpd = PBAADHCPServer(server_ip, server_port, client_port,
+                           aaserver_host, aaserver_port)
 
     while True:
         dhcpd.get_next_dhcp_packet()
