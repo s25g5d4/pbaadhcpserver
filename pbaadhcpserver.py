@@ -1,17 +1,18 @@
-#!/bin/python
+#!/usr/bin/python2
 # -*- encoding: utf-8 -*-
-from __future__ import print_function
+# from __future__ import print_function
+import argparse
 import logging
+import configparser
 import requests
 from libpydhcpserver.dhcp import DHCPServer
 class PBAADHCPServer(DHCPServer):
     def __init__(
-            self, server_address, server_port, client_port,
-            aaserver_host, aaserver_port,
+            self, server_address, server_port, client_port, aaserver_addr,
             proxy_port=None, response_interface=None,
             response_interface_qtags=None
     ):
-        self.aaserver_url = aaserver_host + ':' + str(aaserver_port)
+        self.aaserver_addr = aaserver_addr
         DHCPServer.__init__(
             self,
             server_address=server_address,
@@ -171,24 +172,24 @@ class PBAADHCPServer(DHCPServer):
         res = None
         require_options = False
         if dhcp_type is 'DHCP_DISCOVER':
-            logging.debug('Url: %s', self.aaserver_url)
-            res = requests.post(self.aaserver_url + '/discover',
+            logging.debug('Url: %s', self.aaserver_addr)
+            res = requests.post(self.aaserver_addr + '/discover',
                                 json=client_info)
             require_options = True
         elif dhcp_type is 'DHCP_REQUEST':
-            res = requests.post(self.aaserver_url + '/request',
+            res = requests.post(self.aaserver_addr + '/request',
                                 json=client_info)
             require_options = True
         elif require_options is 'DHCP_INFORM':
-            res = requests.post(self.aaserver_url + '/inform',
+            res = requests.post(self.aaserver_addr + '/inform',
                                 json=client_info)
             require_options = True
         elif dhcp_type is 'DHCP_DECLINE':
-            res = requests.put(self.aaserver_url + '/decline',
+            res = requests.put(self.aaserver_addr + '/decline',
                                json=client_info)
             require_options = False
         elif dhcp_type is 'DHCP_RELEASE':
-            res = requests.put(self.aaserver_url + '/release',
+            res = requests.put(self.aaserver_addr + '/release',
                                json=client_info)
             require_options = False
         # elif dhcp_type is 'DHCP_LEASEQUERY':
@@ -224,21 +225,45 @@ class PBAADHCPServer(DHCPServer):
     }
 
 def main():
-    server_ip = '127.0.0.1'
-    server_port = 67
-    client_port = 68
-    aaserver_host = 'http://127.0.0.1'
-    aaserver_port = 8080
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", dest="config_file", default='config.ini',
+                        help="config: The location of the config file")
+    args = parser.parse_args()
+
+    config = configparser.ConfigParser()
+    try:
+        with open(args.config_file) as config_file:
+            config.readfp(config_file)
+    except (OSError, IOError):
+        logging.error('Failed to open the config file.')
+        return
+
+    server_ip = ''
+    server_port = 0
+    client_port = 0
+    aaserver_addr = ''
+
+    try:
+        server_ip = config.get('pbaadhcpserver', 'server_ip')
+        server_port = config.getint('pbaadhcpserver', 'server_port')
+        client_port = config.getint('pbaadhcpserver', 'client_port')
+        aaserver_addr = config.get('pbaadhcpserver', 'aaserver_addr')
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        logging.error('Failed to parse the config file.')
+        return
+    # TODO: debug_level from config file
+
     logging.basicConfig(
         format='%(levelname)s:%(message)s', level=logging.DEBUG
     )
 
-    logging.info('DHCP Server is listening on %s, server port: %s, '
-                 'client port: %s',
-                 server_ip, server_port, client_port)
+    logging.info('DHCP Server is listening on %s:%s',
+                 server_ip, server_port)
+    logging.info('Client port is %s, address assign server is at %s',
+                 client_port, aaserver_addr)
 
     dhcpd = PBAADHCPServer(server_ip, server_port, client_port,
-                           aaserver_host, aaserver_port)
+                           aaserver_addr)
 
     while True:
         dhcpd.get_next_dhcp_packet()
