@@ -90,7 +90,7 @@ class PBAADHCPServer(DHCPServer):
             logging.error('Packet will be ignored.')
             return
         logging.info('send %s to %s:%s',
-                     msg_type, source_address.ip, source_address.port)
+                     msg_type, source_address.ip, port)
         logging.debug('\n%s\n', packet)
         self._sendDHCPPacket(packet, source_address, port)
 
