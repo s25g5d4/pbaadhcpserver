@@ -81,8 +81,10 @@ class PBAADHCPServer(DHCPServer):
             packet.setOption(option, value)
         if msg_type is 'DHCP_OFFER':
             packet.transformToDHCPOfferPacket()
+            packet.setOption('server_identifier', self._server_address)
         elif msg_type is 'DHCP_ACK':
             packet.transformToDHCPAckPacket()
+            packet.setOption('server_identifier', self._server_address)
         elif msg_type is 'DHCP_NAK':
             packet.transformToDHCPNakPacket()
         else:
