@@ -106,6 +106,7 @@ class PBAADHCPServer(DHCPServer):
         ]:
             info[field_name] = packet.getOption(field_name)
         options = {}
+        packet.setSelectedOptions()
         for option in packet.getSelectedOptions():
             options[option] = packet.getOption(option)
         info['options'] = options
